@@ -25,6 +25,7 @@
             display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box;
         }
         #score-box { color: #FFFF00; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
+        #level-box { color: #00ffff; font-size: 18px; font-weight: bold; text-shadow: 2px 2px 0 #000; }
         #health-container { width: 200px; height: 20px; border: 2px solid white; background: #333; }
         #health-fill { width: 100%; height: 100%; background-color: #00ff00; transition: width 0.2s; }
 
@@ -42,6 +43,9 @@
             position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%);
             color: #00ffff; font-size: 40px; font-weight: bold; text-shadow: 0 0 10px #00ffff;
             text-align: center; opacity: 0; transition: opacity 0.5s;
+        }
+        #level-subtitle {
+            font-size: 20px; color: #ffff00; margin-top: 10px;
         }
         #game-over, #pause-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -130,7 +134,10 @@
     <div id="ui-layer">
         <div id="top-bar">
             <button id="pause-btn">PAUSE</button>
-            <div id="score-box">SCORE: <span id="score">0</span></div>
+            <div>
+                <div id="level-box">LEVEL 1</div>
+                <div id="score-box">SCORE: <span id="score">0</span></div>
+            </div>
             <div id="health-container"><div id="health-fill"></div></div>
         </div>
         
@@ -139,7 +146,11 @@
             <div id="boss-health-container"><div id="boss-health-fill"></div></div>
         </div>
 
-        <div id="level-msg">LEVEL 1<br>ENGAGE!</div>
+        <div id="level-msg">
+            LEVEL 1<br>
+            <span id="level-subtitle">PACIFIC ISLANDS</span><br>
+            ENGAGE!
+        </div>
 
         <div id="pause-overlay">
             <h1>PAUSED</h1>
@@ -152,8 +163,7 @@
             
             <div id="highscore-container">
                 <h3>TOP ACES</h3>
-                <ul id="highscore-list">
-                    </ul>
+                <ul id="highscore-list"></ul>
                 
                 <div id="input-form">
                     <p class="blinking">NEW HIGH SCORE!</p>
@@ -186,11 +196,21 @@
         const SCROLL_SPEED = 0.008; 
         const PLAYER_SPEED = 0.7;   
         const BULLET_SPEED = 1.2;
-        const SPAWN_RATE = 0.015;     
-        const ENEMY_FIRE_RATE = 0.003; 
+        const BASE_SPAWN_RATE = 0.012;     
+        const BASE_ENEMY_FIRE_RATE = 0.002; 
         const POWERUP_DROP_RATE = 0.40;
-        const BOSS_TRIGGER_SCORE = 3000;
+        const BOSS_TRIGGER_SCORE = 10000; // Points needed per level
+        const MAX_LEVEL = 5;
         const MAX_HIGHSCORES = 5;
+
+        // Level configurations
+        const LEVEL_CONFIG = {
+            1: { name: "PACIFIC ISLANDS", difficulty: 1.0, bossHp: 150, bgColor: 0x1e3f5a },
+            2: { name: "DESERT CANYON", difficulty: 1.25, bossHp: 200, bgColor: 0x4a2810 },
+            3: { name: "FROZEN TUNDRA", difficulty: 1.5, bossHp: 250, bgColor: 0x4a6670 },
+            4: { name: "VOLCANIC ISLANDS", difficulty: 1.8, bossHp: 300, bgColor: 0x2a1a1a },
+            5: { name: "ENEMY FORTRESS", difficulty: 2.2, bossHp: 400, bgColor: 0x1a1a2a }
+        };
 
         // --- STATE ---
         let scene, camera, renderer;
@@ -205,6 +225,7 @@
         
         let state = {
             score: 0,
+            levelScore: 0, // Score within current level
             health: 100,
             level: 1,
             weaponLevel: 1,
@@ -227,11 +248,11 @@
         function loadHighScores() {
             const stored = localStorage.getItem('midway_highscores');
             highScores = stored ? JSON.parse(stored) : [
-                {name: 'ACE', score: 5000},
-                {name: 'USA', score: 3000},
-                {name: 'BOB', score: 2000},
-                {name: 'SKY', score: 1000},
-                {name: 'JET', score: 500}
+                {name: 'ACE', score: 50000},
+                {name: 'USA', score: 30000},
+                {name: 'BOB', score: 20000},
+                {name: 'SKY', score: 10000},
+                {name: 'JET', score: 5000}
             ];
         }
 
@@ -239,12 +260,11 @@
             const finalScore = Math.floor(state.score);
             const lowest = highScores[highScores.length - 1].score;
             
-            renderHighScores(); // Show current list
+            renderHighScores();
             
             if (finalScore > lowest) {
-                // Show Input
                 document.getElementById('input-form').style.display = 'block';
-                document.getElementById('restart-btn').style.display = 'none'; // Hide restart until saved
+                document.getElementById('restart-btn').style.display = 'none';
                 document.getElementById('player-name').focus();
             } else {
                 document.getElementById('input-form').style.display = 'none';
@@ -259,17 +279,10 @@
             
             const newEntry = { name: name, score: Math.floor(state.score) };
             highScores.push(newEntry);
-            
-            // Sort Descending
             highScores.sort((a, b) => b.score - a.score);
-            
-            // Keep Top 5
             highScores = highScores.slice(0, MAX_HIGHSCORES);
-            
-            // Save
             localStorage.setItem('midway_highscores', JSON.stringify(highScores));
             
-            // UI Update
             document.getElementById('input-form').style.display = 'none';
             document.getElementById('restart-btn').style.display = 'inline-block';
             renderHighScores();
@@ -291,7 +304,7 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x1e3f5a); 
+            scene.background = new THREE.Color(LEVEL_CONFIG[1].bgColor); 
 
             const aspect = window.innerWidth / window.innerHeight;
             camera = new THREE.OrthographicCamera(
@@ -331,8 +344,12 @@
             requestAnimationFrame(animate);
             if (state.paused || state.gameOver) return;
 
+            const config = LEVEL_CONFIG[state.level];
+            const spawnRate = BASE_SPAWN_RATE * config.difficulty;
+            const fireRate = BASE_ENEMY_FIRE_RATE * config.difficulty;
+
             // Scroll Ground
-            if (groundMesh) groundMesh.material.map.offset.y += SCROLL_SPEED * state.difficulty;
+            if (groundMesh) groundMesh.material.map.offset.y += SCROLL_SPEED * config.difficulty;
 
             // Player Logic
             player.position.x += input.x * PLAYER_SPEED;
@@ -342,27 +359,29 @@
             player.rotation.z = -input.x * 0.4;
             player.children.forEach(c => { if(c.userData.spin) c.rotation.z += 1.0; });
 
-            // Boss Check
-            if (!state.bossActive && state.score >= BOSS_TRIGGER_SCORE && state.level === 1) {
+            // Boss Check - triggers at 10000 points per level
+            if (!state.bossActive && state.levelScore >= BOSS_TRIGGER_SCORE) {
                 spawnBoss();
             }
             if (boss) updateBoss();
 
             // Spawn Enemies
-            if (!state.bossActive && Math.random() < SPAWN_RATE * state.difficulty) {
+            if (!state.bossActive && Math.random() < spawnRate) {
                 spawnEnemy();
             }
 
             // Update Enemies
             for (let i = enemies.length - 1; i >= 0; i--) {
                 let e = enemies[i];
-                e.position.z += e.userData.speed + SCROLL_SPEED;
+                e.position.z += e.userData.speed;
                 
-                if (Math.random() < ENEMY_FIRE_RATE * state.difficulty && e.position.z < 25) {
+                // Spin propellers on planes
+                e.children.forEach(c => { if(c.userData && c.userData.spin) c.rotation.z += 0.8; });
+                
+                if (Math.random() < fireRate && e.position.z < 25) {
                     fireEnemy(e);
                 }
 
-                // 2D Collision with Player
                 if (Math.abs(e.position.x - player.position.x) < 5 && Math.abs(e.position.z - player.position.z) < 5) {
                     takeDamage(15);
                     createExplosion(e.position);
@@ -385,9 +404,24 @@
                 p.rotation.y += p.userData.rot.y;
                 
                 if (Math.abs(p.position.x - player.position.x) < 5 && Math.abs(p.position.z - player.position.z) < 5) {
-                    state.weaponLevel = Math.min(3, state.weaponLevel + 1);
-                    state.score += 500;
-                    state.health = Math.min(100, state.health + 20);
+                    // Handle different powerup types
+                    switch(p.userData.type) {
+                        case 'health':
+                            state.health = Math.min(100, state.health + 35);
+                            addScore(100);
+                            break;
+                        case 'weapon':
+                            state.weaponLevel = Math.min(3, state.weaponLevel + 1);
+                            addScore(250);
+                            break;
+                        case 'score':
+                            addScore(1000);
+                            break;
+                        default:
+                            state.weaponLevel = Math.min(3, state.weaponLevel + 1);
+                            addScore(500);
+                            state.health = Math.min(100, state.health + 20);
+                    }
                     updateHUD();
                     scene.remove(p);
                     powerups.splice(i, 1);
@@ -403,7 +437,6 @@
             for (let i = playerBullets.length - 1; i >= 0; i--) {
                 let b = playerBullets[i];
                 b.position.add(b.userData.vel);
-                let hit = false;
 
                 // Boss Hit
                 if (boss && Math.abs(b.position.z - boss.position.z) < 6 && Math.abs(b.position.x - boss.position.x) < 14) {
@@ -415,15 +448,22 @@
                         scene.remove(boss);
                         boss = null;
                         document.getElementById('boss-hud').style.display = 'none';
-                        state.score += 5000;
-                        startLevel(2);
+                        addScore(5000);
+                        
+                        // Check for next level or victory
+                        if (state.level >= MAX_LEVEL) {
+                            endGame(true);
+                        } else {
+                            startLevel(state.level + 1);
+                        }
                     }
                     scene.remove(b);
                     playerBullets.splice(i, 1);
                     continue;
                 }
 
-                // Enemy Hit (2D)
+                // Enemy Hit
+                let hit = false;
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     let e = enemies[j];
                     if (Math.abs(b.position.x - e.position.x) < 5 && Math.abs(b.position.z - e.position.z) < 5) {
@@ -431,8 +471,7 @@
                         e.userData.hp--;
                         if (e.userData.hp <= 0) {
                             createExplosion(e.position);
-                            state.score += e.userData.score;
-                            updateHUD();
+                            addScore(e.userData.score);
                             if (Math.random() < POWERUP_DROP_RATE) spawnPowerUp(e.position);
                             scene.remove(e);
                             enemies.splice(j, 1);
@@ -470,110 +509,765 @@
             renderer.render(scene, camera);
         }
 
-        // --- HELPERS ---
+        // --- SCORE HELPER ---
+        function addScore(points) {
+            state.score += points;
+            state.levelScore += points;
+            updateHUD();
+        }
+
+        // --- LEVEL SYSTEM ---
 
         function startLevel(lvl) {
             state.level = lvl;
+            state.levelScore = 0; // Reset level score
             state.bossActive = false;
-            if (lvl === 2) {
-                state.difficulty = 1.2;
-                createProceduralTerrain(2);
-            }
+            
+            const config = LEVEL_CONFIG[lvl];
+            state.difficulty = config.difficulty;
+            
+            // Clear remaining enemies/bullets
+            enemies.forEach(e => scene.remove(e));
+            enemies = [];
+            enemyBullets.forEach(b => scene.remove(b));
+            enemyBullets = [];
+            
+            createProceduralTerrain(lvl);
             showLevelMessage(lvl);
+            
+            // Bonus health on level up
+            state.health = Math.min(100, state.health + 30);
+            updateHUD();
         }
 
-        function createProceduralTerrain(type) {
+        // --- PIXEL ART TERRAIN GENERATOR ---
+        function createProceduralTerrain(level) {
             if (groundMesh) { scene.remove(groundMesh); groundMesh.geometry.dispose(); }
             const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 1024;
+            canvas.width = 256; canvas.height = 512;
             const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false; // Pixel art style
 
-            if (type === 1) { // Ocean
-                ctx.fillStyle = '#1e3f5a'; ctx.fillRect(0,0,512,1024);
-                for(let i=0; i<15; i++) {
-                    const x = Math.random()*512, y = Math.random()*1024, r = 30+Math.random()*30;
-                    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle='#eecfa1'; ctx.fill();
-                    ctx.beginPath(); ctx.arc(x,y,r*0.7,0,Math.PI*2); ctx.fillStyle='#4a8532'; ctx.fill();
-                }
-                scene.background = new THREE.Color(0x1e3f5a);
-            } else { // Canyon
-                ctx.fillStyle = '#8B4513'; ctx.fillRect(0,0,512,1024);
-                ctx.strokeStyle = '#3e1e09'; ctx.lineWidth = 15;
-                for(let i=0; i<8; i++) {
-                    ctx.beginPath(); ctx.moveTo(Math.random()*512,0);
-                    ctx.bezierCurveTo(Math.random()*512,300,Math.random()*512,600,Math.random()*512,1024);
-                    ctx.stroke();
-                }
-                scene.background = new THREE.Color(0x8B4513);
+            const config = LEVEL_CONFIG[level];
+            scene.background = new THREE.Color(config.bgColor);
+
+            switch(level) {
+                case 1: // Pacific Islands - Ocean with islands
+                    drawPixelTerrain_Pacific(ctx);
+                    break;
+                case 2: // Desert Canyon
+                    drawPixelTerrain_Desert(ctx);
+                    break;
+                case 3: // Frozen Tundra
+                    drawPixelTerrain_Tundra(ctx);
+                    break;
+                case 4: // Volcanic Islands
+                    drawPixelTerrain_Volcanic(ctx);
+                    break;
+                case 5: // Enemy Fortress
+                    drawPixelTerrain_Fortress(ctx);
+                    break;
             }
+
             const tex = new THREE.CanvasTexture(canvas);
-            tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1,1);
-            const geo = new THREE.PlaneGeometry(200, 200); geo.rotateX(-Math.PI/2);
-            const mat = new THREE.MeshStandardMaterial({map:tex, roughness:0.9});
+            tex.magFilter = THREE.NearestFilter; // Keep pixels sharp
+            tex.minFilter = THREE.NearestFilter;
+            tex.wrapS = THREE.RepeatWrapping; 
+            tex.wrapT = THREE.RepeatWrapping; 
+            tex.repeat.set(1, 1);
+            
+            const geo = new THREE.PlaneGeometry(200, 200); 
+            geo.rotateX(-Math.PI / 2);
+            const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 });
             groundMesh = new THREE.Mesh(geo, mat);
-            groundMesh.position.y = -10; groundMesh.receiveShadow = true;
+            groundMesh.position.y = -10; 
+            groundMesh.receiveShadow = true;
             scene.add(groundMesh);
         }
 
+        // --- PIXEL ART DRAWING FUNCTIONS ---
+
+        function drawPixelTerrain_Pacific(ctx) {
+            // Deep ocean
+            ctx.fillStyle = '#1e3f5a';
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Water waves (pixel style)
+            ctx.fillStyle = '#2a5070';
+            for (let y = 0; y < 512; y += 16) {
+                for (let x = 0; x < 256; x += 32) {
+                    ctx.fillRect(x + ((y/16) % 2) * 16, y, 24, 4);
+                }
+            }
+            
+            // Islands
+            for (let i = 0; i < 8; i++) {
+                const ix = Math.floor(Math.random() * 200) + 28;
+                const iy = Math.floor(Math.random() * 460) + 26;
+                
+                // Sand/beach
+                ctx.fillStyle = '#eecfa1';
+                drawPixelCircle(ctx, ix, iy, 20 + Math.random() * 15);
+                
+                // Green vegetation
+                ctx.fillStyle = '#3d7a3d';
+                drawPixelCircle(ctx, ix, iy, 14 + Math.random() * 10);
+                
+                // Dense trees (darker)
+                ctx.fillStyle = '#2d5a2d';
+                drawPixelCircle(ctx, ix + 2, iy - 2, 8 + Math.random() * 6);
+                
+                // Palm trees (small pixels)
+                ctx.fillStyle = '#1a3a1a';
+                for (let t = 0; t < 3; t++) {
+                    ctx.fillRect(ix - 6 + t * 6, iy - 4 + t * 2, 4, 4);
+                }
+            }
+        }
+
+        function drawPixelTerrain_Desert(ctx) {
+            // Base sand - darker brown/orange
+            ctx.fillStyle = '#6b4420';
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Sand dunes pattern - slightly lighter
+            ctx.fillStyle = '#7a5530';
+            for (let y = 0; y < 512; y += 24) {
+                for (let x = 0; x < 256; x += 48) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + 24);
+                    ctx.lineTo(x + 24, y);
+                    ctx.lineTo(x + 48, y + 24);
+                    ctx.fill();
+                }
+            }
+            
+            // Dark canyons - even darker
+            ctx.fillStyle = '#3a2015';
+            ctx.strokeStyle = '#2a1008';
+            ctx.lineWidth = 10;
+            for (let i = 0; i < 5; i++) {
+                const sx = Math.random() * 256;
+                ctx.beginPath();
+                ctx.moveTo(sx, 0);
+                for (let y = 0; y < 512; y += 64) {
+                    ctx.lineTo(sx + (Math.random() - 0.5) * 80, y);
+                }
+                ctx.stroke();
+            }
+            
+            // Rocky outcrops - dark rocks
+            ctx.fillStyle = '#4a3010';
+            for (let i = 0; i < 12; i++) {
+                const rx = Math.random() * 240 + 8;
+                const ry = Math.random() * 496 + 8;
+                ctx.fillRect(rx, ry, 8 + Math.random() * 16, 8 + Math.random() * 12);
+            }
+            
+            // Cacti - dark green
+            ctx.fillStyle = '#2a4a2a';
+            for (let i = 0; i < 6; i++) {
+                const cx = Math.random() * 240 + 8;
+                const cy = Math.random() * 496 + 8;
+                ctx.fillRect(cx, cy, 4, 12);
+                ctx.fillRect(cx - 4, cy + 4, 4, 6);
+                ctx.fillRect(cx + 4, cy + 2, 4, 6);
+            }
+        }
+
+        function drawPixelTerrain_Tundra(ctx) {
+            // Snow base
+            ctx.fillStyle = '#e8e8f0';
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Ice patches
+            ctx.fillStyle = '#c8d8e8';
+            for (let i = 0; i < 20; i++) {
+                const x = Math.random() * 256;
+                const y = Math.random() * 512;
+                drawPixelCircle(ctx, x, y, 15 + Math.random() * 20);
+            }
+            
+            // Frozen lakes
+            ctx.fillStyle = '#6a8aa8';
+            for (let i = 0; i < 4; i++) {
+                const lx = Math.random() * 200 + 28;
+                const ly = Math.random() * 460 + 26;
+                drawPixelCircle(ctx, lx, ly, 25 + Math.random() * 20);
+                
+                // Ice cracks
+                ctx.strokeStyle = '#8ab8d8';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(lx - 15, ly);
+                ctx.lineTo(lx + 15, ly + 5);
+                ctx.moveTo(lx, ly - 10);
+                ctx.lineTo(lx + 5, ly + 15);
+                ctx.stroke();
+            }
+            
+            // Pine trees
+            ctx.fillStyle = '#2a4a3a';
+            for (let i = 0; i < 15; i++) {
+                const tx = Math.random() * 240 + 8;
+                const ty = Math.random() * 496 + 8;
+                // Triangle tree
+                ctx.beginPath();
+                ctx.moveTo(tx, ty - 12);
+                ctx.lineTo(tx - 8, ty + 4);
+                ctx.lineTo(tx + 8, ty + 4);
+                ctx.fill();
+                ctx.fillRect(tx - 2, ty + 4, 4, 6);
+            }
+            
+            // Snow drifts
+            ctx.fillStyle = '#ffffff';
+            for (let i = 0; i < 10; i++) {
+                ctx.fillRect(Math.random() * 256, Math.random() * 512, 16, 4);
+            }
+        }
+
+        function drawPixelTerrain_Volcanic(ctx) {
+            // Dark volcanic rock
+            ctx.fillStyle = '#2a1a1a';
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Lava rivers
+            ctx.fillStyle = '#ff4400';
+            for (let i = 0; i < 3; i++) {
+                const sx = Math.random() * 200 + 28;
+                ctx.beginPath();
+                ctx.moveTo(sx, 0);
+                let px = sx;
+                for (let y = 0; y < 512; y += 32) {
+                    px += (Math.random() - 0.5) * 40;
+                    ctx.lineTo(px, y);
+                }
+                ctx.lineWidth = 12;
+                ctx.strokeStyle = '#ff4400';
+                ctx.stroke();
+                
+                // Glow
+                ctx.lineWidth = 20;
+                ctx.strokeStyle = 'rgba(255, 100, 0, 0.3)';
+                ctx.stroke();
+            }
+            
+            // Volcanic craters
+            for (let i = 0; i < 5; i++) {
+                const cx = Math.random() * 200 + 28;
+                const cy = Math.random() * 460 + 26;
+                
+                // Outer rock
+                ctx.fillStyle = '#4a3a3a';
+                drawPixelCircle(ctx, cx, cy, 20);
+                
+                // Inner lava
+                ctx.fillStyle = '#ff6600';
+                drawPixelCircle(ctx, cx, cy, 10);
+                
+                // Core
+                ctx.fillStyle = '#ffaa00';
+                drawPixelCircle(ctx, cx, cy, 5);
+            }
+            
+            // Ash/smoke rocks
+            ctx.fillStyle = '#3a2a2a';
+            for (let i = 0; i < 25; i++) {
+                ctx.fillRect(Math.random() * 256, Math.random() * 512, 8, 8);
+            }
+            
+            // Ember particles
+            ctx.fillStyle = '#ffaa00';
+            for (let i = 0; i < 30; i++) {
+                ctx.fillRect(Math.random() * 256, Math.random() * 512, 2, 2);
+            }
+        }
+
+        function drawPixelTerrain_Fortress(ctx) {
+            // Dark metal base
+            ctx.fillStyle = '#1a1a2a';
+            ctx.fillRect(0, 0, 256, 512);
+            
+            // Metal plating grid
+            ctx.strokeStyle = '#2a2a4a';
+            ctx.lineWidth = 2;
+            for (let x = 0; x < 256; x += 32) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, 512);
+                ctx.stroke();
+            }
+            for (let y = 0; y < 512; y += 32) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(256, y);
+                ctx.stroke();
+            }
+            
+            // Rivets
+            ctx.fillStyle = '#4a4a6a';
+            for (let x = 16; x < 256; x += 32) {
+                for (let y = 16; y < 512; y += 32) {
+                    ctx.fillRect(x - 2, y - 2, 4, 4);
+                }
+            }
+            
+            // Gun turrets (enemy structures)
+            ctx.fillStyle = '#3a3a5a';
+            for (let i = 0; i < 6; i++) {
+                const tx = Math.random() * 200 + 28;
+                const ty = Math.random() * 460 + 26;
+                ctx.fillRect(tx - 12, ty - 12, 24, 24);
+                ctx.fillStyle = '#5a5a7a';
+                ctx.fillRect(tx - 8, ty - 8, 16, 16);
+                ctx.fillStyle = '#8a0000';
+                drawPixelCircle(ctx, tx, ty, 6);
+                ctx.fillStyle = '#3a3a5a';
+            }
+            
+            // Warning stripes
+            ctx.fillStyle = '#aa8800';
+            for (let i = 0; i < 4; i++) {
+                const sy = Math.random() * 480 + 16;
+                for (let x = 0; x < 256; x += 16) {
+                    if ((x / 16) % 2 === 0) {
+                        ctx.fillRect(x, sy, 8, 8);
+                    }
+                }
+            }
+            
+            // Glowing vents
+            ctx.fillStyle = '#00ffaa';
+            for (let i = 0; i < 8; i++) {
+                ctx.fillRect(Math.random() * 250, Math.random() * 506, 6, 6);
+            }
+        }
+
+        function drawPixelCircle(ctx, cx, cy, radius) {
+            const r = Math.floor(radius);
+            for (let y = -r; y <= r; y += 4) {
+                for (let x = -r; x <= r; x += 4) {
+                    if (x * x + y * y <= r * r) {
+                        ctx.fillRect(Math.floor(cx + x), Math.floor(cy + y), 4, 4);
+                    }
+                }
+            }
+        }
+
+        // --- GAME OBJECTS ---
+
         function createPlayerMesh() {
             const mesh = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
-            mesh.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 4), mat));
-            mesh.add(new THREE.Mesh(new THREE.BoxGeometry(9, 0.2, 2), mat));
-            const pMat = new THREE.MeshBasicMaterial({ color: 0x333 });
-            const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 0.1), pMat);
-            p1.position.set(-2, 0, -1.5); p1.userData={spin:true}; mesh.add(p1);
-            const p2 = p1.clone(); p2.position.set(2, 0, -1.5); p2.userData={spin:true}; mesh.add(p2);
-            mesh.position.y = 5; mesh.castShadow = true;
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4a7c4e }); // Military green
+            const darkGreen = new THREE.MeshStandardMaterial({ color: 0x3a5c3e });
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+            const glassMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, transparent: true, opacity: 0.7 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const yellowMat = new THREE.MeshStandardMaterial({ color: 0xcccc44 });
+            
+            // Fuselage - tapered cylinder
+            const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 5, 8), bodyMat);
+            fuselage.rotation.x = Math.PI / 2;
+            mesh.add(fuselage);
+            
+            // Nose cone
+            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.5, 8), bodyMat);
+            nose.rotation.x = -Math.PI / 2;
+            nose.position.z = -3.2;
+            mesh.add(nose);
+            
+            // Cockpit canopy
+            const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), glassMat);
+            cockpit.position.set(0, 0.5, -0.5);
+            cockpit.scale.set(1, 0.6, 1.5);
+            mesh.add(cockpit);
+            
+            // === MAIN WINGS (simple box, extends on X axis) ===
+            // Left wing
+            const leftWing = new THREE.Mesh(new THREE.BoxGeometry(5, 0.15, 1.5), bodyMat);
+            leftWing.position.set(3, 0, 0.2);
+            mesh.add(leftWing);
+            
+            // Left wing tip (tapered)
+            const leftWingTip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 1), darkGreen);
+            leftWingTip.position.set(6, 0, 0.2);
+            mesh.add(leftWingTip);
+            
+            // Right wing
+            const rightWing = new THREE.Mesh(new THREE.BoxGeometry(5, 0.15, 1.5), bodyMat);
+            rightWing.position.set(-3, 0, 0.2);
+            mesh.add(rightWing);
+            
+            // Right wing tip
+            const rightWingTip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.12, 1), darkGreen);
+            rightWingTip.position.set(-6, 0, 0.2);
+            mesh.add(rightWingTip);
+            
+            // Wing markings (yellow stripes)
+            const leftStripe = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 1.2), yellowMat);
+            leftStripe.position.set(4, 0.05, 0.2);
+            mesh.add(leftStripe);
+            const rightStripe = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.18, 1.2), yellowMat);
+            rightStripe.position.set(-4, 0.05, 0.2);
+            mesh.add(rightStripe);
+            
+            // Tail fin (vertical stabilizer)
+            const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 1), bodyMat);
+            tailFin.position.set(0, 0.6, 2);
+            mesh.add(tailFin);
+            
+            // Horizontal stabilizers (tail wings)
+            const hStab = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 0.8), bodyMat);
+            hStab.position.set(0, 0.1, 2.2);
+            mesh.add(hStab);
+            
+            // Propeller hub
+            const propHub = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.4, 8), metalMat);
+            propHub.rotation.x = -Math.PI / 2;
+            propHub.position.z = -3.9;
+            mesh.add(propHub);
+            
+            // Propeller blades (spinning)
+            const propGroup = new THREE.Group();
+            const blade1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 0.05), darkMat);
+            propGroup.add(blade1);
+            const blade2 = blade1.clone();
+            blade2.rotation.z = Math.PI / 2;
+            propGroup.add(blade2);
+            propGroup.position.z = -4.1;
+            propGroup.userData = { spin: true };
+            mesh.add(propGroup);
+            
+            // Engine cowling details
+            const cowl = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.1, 8, 16), metalMat);
+            cowl.rotation.x = Math.PI / 2;
+            cowl.position.z = -2.5;
+            mesh.add(cowl);
+            
+            mesh.position.y = 5;
+            mesh.castShadow = true;
             return mesh;
         }
 
         function createEnemyPlane() {
             const mesh = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0xaa3333 });
-            const body = new THREE.Mesh(new THREE.ConeGeometry(1, 3, 4), mat);
-            body.rotation.x = -Math.PI/2; body.rotation.y = Math.PI/4;
-            mesh.add(body); mesh.add(new THREE.Mesh(new THREE.BoxGeometry(5, 0.1, 1), mat));
-            mesh.userData = { hp: 2, type: 'plane', score: 100, speed: 0.25 };
-            mesh.position.y = 5; mesh.castShadow = true; return mesh;
+            const config = LEVEL_CONFIG[state.level];
+            
+            // Different enemy colors per level
+            const colors = [0xcc4444, 0xcc8844, 0x4488cc, 0x884444, 0x444488];
+            const accentColors = [0x882222, 0x886622, 0x226688, 0x662222, 0x222266];
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colors[state.level - 1] });
+            const accentMat = new THREE.MeshStandardMaterial({ color: accentColors[state.level - 1] });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            
+            // Fuselage
+            const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 4, 8), bodyMat);
+            fuselage.rotation.x = Math.PI / 2;
+            mesh.add(fuselage);
+            
+            // Nose
+            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.2, 8), bodyMat);
+            nose.rotation.x = -Math.PI / 2;
+            nose.position.z = -2.5;
+            mesh.add(nose);
+            
+            // Cockpit (enemy style - more angular)
+            const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 1), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            cockpit.position.set(0, 0.4, -0.3);
+            mesh.add(cockpit);
+            
+            // Wings - swept back style
+            const wing = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.12, 1.2), bodyMat);
+            wing.position.set(0, 0, 0.2);
+            wing.rotation.z = 0.05;
+            mesh.add(wing);
+            
+            // Wing tips (darker)
+            const wingTipL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.1, 0.6), accentMat);
+            wingTipL.position.set(2.4, 0, 0.2);
+            mesh.add(wingTipL);
+            const wingTipR = wingTipL.clone();
+            wingTipR.position.set(-2.4, 0, 0.2);
+            mesh.add(wingTipR);
+            
+            // Tail
+            const tail = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.5, 6), bodyMat);
+            tail.rotation.x = Math.PI / 2;
+            tail.position.z = 2.5;
+            mesh.add(tail);
+            
+            // Tail fin
+            const tailFin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.7), accentMat);
+            tailFin.position.set(0, 0.4, 1.8);
+            mesh.add(tailFin);
+            
+            // Horizontal tail
+            const hTail = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 0.5), bodyMat);
+            hTail.position.set(0, 0, 1.9);
+            mesh.add(hTail);
+            
+            // Propeller
+            const prop = new THREE.Group();
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.6, 0.04), darkMat);
+            prop.add(blade);
+            const blade2 = blade.clone();
+            blade2.rotation.z = Math.PI / 2;
+            prop.add(blade2);
+            prop.position.z = -3.1;
+            prop.userData = { spin: true };
+            mesh.add(prop);
+            
+            mesh.userData = { 
+                hp: 2 + Math.floor(state.level / 2), 
+                type: 'plane', 
+                score: 100 * state.level, 
+                speed: 0.25 * config.difficulty 
+            };
+            mesh.position.y = 5;
+            mesh.castShadow = true;
+            mesh.rotation.y = Math.PI; // Face downward (toward player)
+            return mesh;
         }
 
         function createShip() {
             const mesh = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0x666 });
-            mesh.add(new THREE.Mesh(new THREE.BoxGeometry(4, 2, 10), mat));
-            const c = new THREE.Mesh(new THREE.CylinderGeometry(1,1,0.1), new THREE.MeshBasicMaterial({color:0xcc0000}));
-            c.position.y = 1.1; mesh.add(c);
-            mesh.userData = { hp: 5, type: 'ship', score: 300, speed: 0.05 };
-            mesh.position.y = -5; mesh.castShadow = true; return mesh;
+            const config = LEVEL_CONFIG[state.level];
+            
+            const hullMat = new THREE.MeshStandardMaterial({ color: 0x556677 });
+            const deckMat = new THREE.MeshStandardMaterial({ color: 0x887766 });
+            const structMat = new THREE.MeshStandardMaterial({ color: 0x667788 });
+            const gunMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+            
+            // Hull - tapered ship shape
+            const hullShape = new THREE.Shape();
+            hullShape.moveTo(-1.5, -4);
+            hullShape.lineTo(-2, -2);
+            hullShape.lineTo(-2, 2);
+            hullShape.lineTo(-1.5, 4);
+            hullShape.lineTo(-0.8, 5);
+            hullShape.lineTo(0.8, 5);
+            hullShape.lineTo(1.5, 4);
+            hullShape.lineTo(2, 2);
+            hullShape.lineTo(2, -2);
+            hullShape.lineTo(1.5, -4);
+            hullShape.lineTo(-1.5, -4);
+            
+            const hullGeo = new THREE.ExtrudeGeometry(hullShape, { depth: 1.5, bevelEnabled: false });
+            const hull = new THREE.Mesh(hullGeo, hullMat);
+            hull.rotation.x = -Math.PI / 2;
+            hull.position.y = -0.75;
+            mesh.add(hull);
+            
+            // Deck
+            const deck = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.2, 9), deckMat);
+            deck.position.set(0, 0.7, 0.5);
+            mesh.add(deck);
+            
+            // Bridge/superstructure
+            const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 2), structMat);
+            bridge.position.set(0, 1.4, -1);
+            mesh.add(bridge);
+            
+            // Bridge windows
+            const windows = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.3, 0.1), new THREE.MeshBasicMaterial({ color: 0x88aacc }));
+            windows.position.set(0, 1.6, -2);
+            mesh.add(windows);
+            
+            // Radar/mast
+            const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.5, 6), gunMat);
+            mast.position.set(0, 2.5, -1);
+            mesh.add(mast);
+            
+            // Front gun turret
+            const turretBase = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 0.4, 8), gunMat);
+            turretBase.position.set(0, 1, 2.5);
+            mesh.add(turretBase);
+            const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5, 6), gunMat);
+            gunBarrel.rotation.x = -Math.PI / 2;
+            gunBarrel.position.set(0, 1.1, 3.5);
+            mesh.add(gunBarrel);
+            
+            // Rear gun turret
+            const rearTurret = turretBase.clone();
+            rearTurret.position.set(0, 1, -3);
+            mesh.add(rearTurret);
+            const rearGun = gunBarrel.clone();
+            rearGun.position.set(0, 1.1, -4);
+            rearGun.rotation.x = Math.PI / 2;
+            mesh.add(rearGun);
+            
+            // Smokestacks
+            const stack1 = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 0.8, 8), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            stack1.position.set(0.5, 1.8, 0.5);
+            mesh.add(stack1);
+            const stack2 = stack1.clone();
+            stack2.position.set(-0.5, 1.8, 0.5);
+            mesh.add(stack2);
+            
+            mesh.userData = { 
+                hp: 5 + state.level, 
+                type: 'ship', 
+                score: 300 * state.level, 
+                speed: 0.05 * config.difficulty 
+            };
+            mesh.position.y = -8;
+            mesh.castShadow = true;
+            return mesh;
         }
 
         function createBossMesh() {
             const mesh = new THREE.Group();
-            const mat = new THREE.MeshStandardMaterial({ color: 0x550000 });
-            mesh.add(new THREE.Mesh(new THREE.BoxGeometry(4, 3, 12), mat));
-            mesh.add(new THREE.Mesh(new THREE.BoxGeometry(25, 1, 6), mat));
-            mesh.userData = { hp: 150, maxHp: 150, type: 'boss', dir: 1, timer: 0 };
-            mesh.castShadow = true; return mesh;
+            const config = LEVEL_CONFIG[state.level];
+            
+            // Boss colors by level
+            const colors = [0x660022, 0x664400, 0x006666, 0x661100, 0x220044];
+            const accentColors = [0x990033, 0x996600, 0x009999, 0x991100, 0x330066];
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colors[state.level - 1] });
+            const accentMat = new THREE.MeshStandardMaterial({ color: accentColors[state.level - 1] });
+            const metalMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+            const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            
+            // Main fuselage - heavy bomber style
+            const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.5, 10, 10), bodyMat);
+            fuselage.rotation.x = Math.PI / 2;
+            mesh.add(fuselage);
+            
+            // Nose section
+            const nose = new THREE.Mesh(new THREE.SphereGeometry(1.2, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), bodyMat);
+            nose.rotation.x = -Math.PI / 2;
+            nose.position.z = -5;
+            mesh.add(nose);
+            
+            // Glass nose (bomber style)
+            const glassNose = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 6), new THREE.MeshStandardMaterial({ color: 0x88aacc, transparent: true, opacity: 0.6 }));
+            glassNose.scale.set(1, 0.6, 1.2);
+            glassNose.position.set(0, -0.3, -5.5);
+            mesh.add(glassNose);
+            
+            // Tail section
+            const tail = new THREE.Mesh(new THREE.ConeGeometry(1.2, 3, 10), bodyMat);
+            tail.rotation.x = Math.PI / 2;
+            tail.position.z = 6.5;
+            mesh.add(tail);
+            
+            // Main wings
+            const mainWing = new THREE.Mesh(new THREE.BoxGeometry(22, 0.3, 3.5), bodyMat);
+            mainWing.position.set(0, 0, 0);
+            mesh.add(mainWing);
+            
+            // Wing tips
+            const wingTipL = new THREE.Mesh(new THREE.BoxGeometry(2, 0.25, 2), accentMat);
+            wingTipL.position.set(11.5, 0, 0);
+            wingTipL.rotation.z = 0.1;
+            mesh.add(wingTipL);
+            const wingTipR = wingTipL.clone();
+            wingTipR.position.set(-11.5, 0, 0);
+            wingTipR.rotation.z = -0.1;
+            mesh.add(wingTipR);
+            
+            // Tail fins
+            const vTail = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.5, 2), accentMat);
+            vTail.position.set(0, 1.2, 5.5);
+            mesh.add(vTail);
+            
+            const hTail = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 1.5), bodyMat);
+            hTail.position.set(0, 0, 6);
+            mesh.add(hTail);
+            
+            // Engines (4 engines on wings)
+            const createEngine = (x) => {
+                const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 2.5, 8), metalMat);
+                nacelle.rotation.x = Math.PI / 2;
+                nacelle.position.set(x, -0.3, -0.5);
+                mesh.add(nacelle);
+                
+                // Propeller
+                const prop = new THREE.Group();
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2, 0.06), darkMat);
+                prop.add(blade);
+                const blade2 = blade.clone();
+                blade2.rotation.z = Math.PI / 3;
+                prop.add(blade2);
+                const blade3 = blade.clone();
+                blade3.rotation.z = -Math.PI / 3;
+                prop.add(blade3);
+                prop.position.set(x, -0.3, -2);
+                prop.userData = { spin: true };
+                mesh.add(prop);
+            };
+            
+            createEngine(-4);
+            createEngine(-8);
+            createEngine(4);
+            createEngine(8);
+            
+            // Gun turrets
+            const createTurret = (x, z, rot) => {
+                const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.5, 8), metalMat);
+                base.position.set(x, 1, z);
+                mesh.add(base);
+                const guns = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6), darkMat);
+                guns.rotation.x = rot;
+                guns.position.set(x, 1.2, z + (rot < 0 ? -0.8 : 0.8));
+                mesh.add(guns);
+            };
+            
+            createTurret(0, -3, -Math.PI / 6); // Front top turret
+            createTurret(0, 3, Math.PI / 6);   // Rear top turret
+            
+            // Bottom turret (ball turret style)
+            const ballTurret = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), metalMat);
+            ballTurret.position.set(0, -1.3, 0);
+            mesh.add(ballTurret);
+            
+            // Extra details for higher level bosses
+            if (state.level >= 3) {
+                // Additional wing-mounted guns
+                const wingGunL = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5, 6), darkMat);
+                wingGunL.rotation.x = -Math.PI / 2;
+                wingGunL.position.set(-6, -0.2, -2.5);
+                mesh.add(wingGunL);
+                const wingGunR = wingGunL.clone();
+                wingGunR.position.set(6, -0.2, -2.5);
+                mesh.add(wingGunR);
+            }
+            
+            if (state.level >= 5) {
+                // Menacing red core/weak point
+                const core = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 12), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+                core.position.set(0, 0.8, -2);
+                mesh.add(core);
+                
+                // Pulsing glow effect mesh
+                const glow = new THREE.Mesh(new THREE.SphereGeometry(1.1, 12, 12), new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.3 }));
+                glow.position.set(0, 0.8, -2);
+                mesh.add(glow);
+            }
+            
+            mesh.userData = { hp: config.bossHp, maxHp: config.bossHp, type: 'boss', dir: 1, timer: 0 };
+            mesh.position.y = 5;
+            mesh.castShadow = true;
+            return mesh;
         }
 
         function firePlayer() {
-            const createB = (ox, angle=0) => {
-                const b = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 1.5), new THREE.MeshBasicMaterial({color:0xffff00}));
-                b.position.copy(player.position); b.position.x+=ox; b.position.z-=2; b.rotation.y=angle;
-                b.userData = { vel: new THREE.Vector3(Math.sin(angle)*1.2, 0, -Math.cos(angle)*1.2) };
+            const createB = (ox, angle = 0) => {
+                const b = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 1.5), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+                b.position.copy(player.position); b.position.x += ox; b.position.z -= 2; b.rotation.y = angle;
+                b.userData = { vel: new THREE.Vector3(Math.sin(angle) * 1.2, 0, -Math.cos(angle) * 1.2) };
                 scene.add(b); playerBullets.push(b);
             };
-            if(state.weaponLevel===1) createB(0);
-            else if(state.weaponLevel===2) { createB(-1); createB(1); }
+            if (state.weaponLevel === 1) createB(0);
+            else if (state.weaponLevel === 2) { createB(-1); createB(1); }
             else { createB(0); createB(-1.2, 0.15); createB(1.2, -0.15); }
         }
 
         function fireEnemy(obj) {
-            const b = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({color:0xff0000}));
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.5), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
             b.position.copy(obj.position);
             const dir = new THREE.Vector3().subVectors(player.position, obj.position).normalize();
-            b.userData = { vel: dir.multiplyScalar(0.4) };
+            b.userData = { vel: dir.multiplyScalar(0.4 * LEVEL_CONFIG[state.level].difficulty) };
             scene.add(b); enemyBullets.push(b);
         }
 
@@ -582,18 +1276,63 @@
             let enemy = isShip ? createShip() : createEnemyPlane();
             enemy.position.z = -60;
             enemy.position.x = (Math.random() - 0.5) * 50;
-            enemy.userData.speed *= state.difficulty;
             scene.add(enemy);
             enemies.push(enemy);
         }
-        
+
         function spawnPowerUp(pos) {
-            const geo = new THREE.BoxGeometry(2, 2, 2);
-            const mat = new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({color: 0xffffff})));
-            mesh.position.copy(pos); mesh.userData = { rot: new THREE.Vector3(0.05, 0.05, 0) };
-            scene.add(mesh); powerups.push(mesh);
+            const mesh = new THREE.Group();
+            
+            // Randomly choose powerup type
+            const rand = Math.random();
+            let type, outerColor, innerColor, innerGeo;
+            
+            if (rand < 0.35) {
+                // HEALTH powerup - Green with red cross
+                type = 'health';
+                outerColor = 0x00ff44;
+                innerColor = 0xff0000;
+                // Create a cross shape for health
+                const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.4, 0.4), new THREE.MeshBasicMaterial({ color: innerColor }));
+                const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: innerColor }));
+                mesh.add(crossV);
+                mesh.add(crossH);
+            } else if (rand < 0.70) {
+                // WEAPON powerup - Orange/Yellow with bullet shape
+                type = 'weapon';
+                outerColor = 0xffaa00;
+                innerColor = 0xffff00;
+                const bullet = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.2, 6), new THREE.MeshBasicMaterial({ color: innerColor }));
+                bullet.rotation.x = Math.PI;
+                mesh.add(bullet);
+            } else {
+                // SCORE powerup - Blue/Purple with star
+                type = 'score';
+                outerColor = 0x8844ff;
+                innerColor = 0x44ffff;
+                const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.7), new THREE.MeshBasicMaterial({ color: innerColor }));
+                mesh.add(star);
+            }
+            
+            // Outer wireframe box
+            const outerGeo = new THREE.BoxGeometry(2.2, 2.2, 2.2);
+            const outerMat = new THREE.MeshBasicMaterial({ color: outerColor, wireframe: true });
+            const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+            mesh.add(outerMesh);
+            
+            // Glow effect (slightly larger, transparent)
+            const glowGeo = new THREE.BoxGeometry(2.8, 2.8, 2.8);
+            const glowMat = new THREE.MeshBasicMaterial({ color: outerColor, transparent: true, opacity: 0.2 });
+            const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+            mesh.add(glowMesh);
+            
+            mesh.position.copy(pos);
+            mesh.userData = { 
+                rot: new THREE.Vector3(0.05, 0.08, 0.02),
+                type: type
+            };
+            scene.add(mesh);
+            powerups.push(mesh);
         }
 
         function spawnBoss() {
@@ -602,19 +1341,30 @@
             boss.position.set(0, 5, -60);
             scene.add(boss);
             document.getElementById('boss-hud').style.display = 'block';
+            document.getElementById('boss-label').innerHTML = `⚠ LEVEL ${state.level} BOSS ⚠`;
             updateBossUI();
         }
 
         function updateBoss() {
-            if(!boss) return;
-            if(boss.position.z < -20) boss.position.z += 0.2;
-            else {
-                boss.position.x += 0.15 * boss.userData.dir * state.difficulty;
-                if(boss.position.x > 20) boss.userData.dir = -1;
-                if(boss.position.x < -20) boss.userData.dir = 1;
+            if (!boss) return;
+            const config = LEVEL_CONFIG[state.level];
+            
+            // Spin boss propellers
+            boss.children.forEach(c => { if(c.userData && c.userData.spin) c.rotation.z += 0.6; });
+            
+            if (boss.position.z < -20) {
+                boss.position.z += 0.2;
+            } else {
+                boss.position.x += 0.15 * boss.userData.dir * config.difficulty;
+                if (boss.position.x > 20) boss.userData.dir = -1;
+                if (boss.position.x < -20) boss.userData.dir = 1;
+                
                 boss.userData.timer++;
-                if(boss.userData.timer > 60) {
-                    fireEnemy(boss); fireEnemy(boss);
+                const fireInterval = Math.max(30, 60 - state.level * 5); // Fires faster at higher levels
+                if (boss.userData.timer > fireInterval) {
+                    fireEnemy(boss);
+                    if (state.level >= 3) fireEnemy(boss); // Double fire at level 3+
+                    if (state.level >= 5) fireEnemy(boss); // Triple fire at level 5
                     boss.userData.timer = 0;
                 }
             }
@@ -623,7 +1373,7 @@
         function takeDamage(amt) {
             state.health -= amt;
             updateHUD();
-            if(state.health <= 0) {
+            if (state.health <= 0) {
                 state.health = 0;
                 endGame(false);
             }
@@ -634,16 +1384,27 @@
             document.getElementById('game-over').style.display = 'flex';
             document.getElementById('final-score').innerText = Math.floor(state.score);
             const title = document.getElementById('end-title');
-            if (win) { title.innerText = "MISSION COMPLETE"; title.style.color = "#00ff00"; }
-            else { title.innerText = "MISSION FAILED"; title.style.color = "#ff0000"; }
+            if (win) { 
+                title.innerText = "VICTORY! ALL LEVELS COMPLETE!"; 
+                title.style.color = "#00ff00"; 
+            } else { 
+                title.innerText = "MISSION FAILED"; 
+                title.style.color = "#ff0000"; 
+            }
             checkHighScore();
         }
 
-        function createExplosion(pos, scale=1) {
-            for(let i=0; i<6; i++) {
-                const p = new THREE.Mesh(new THREE.BoxGeometry(0.8*scale,0.8*scale,0.8*scale), new THREE.MeshBasicMaterial({color:0xffaa00}));
+        function createExplosion(pos, scale = 1) {
+            for (let i = 0; i < 6; i++) {
+                const p = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.8 * scale, 0.8 * scale, 0.8 * scale), 
+                    new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+                );
                 p.position.copy(pos);
-                p.userData={vel: new THREE.Vector3((Math.random()-0.5),0,(Math.random()-0.5)).multiplyScalar(0.5), life:20};
+                p.userData = { 
+                    vel: new THREE.Vector3((Math.random() - 0.5), 0, (Math.random() - 0.5)).multiplyScalar(0.5), 
+                    life: 20 
+                };
                 scene.add(p); particles.push(p);
             }
         }
@@ -651,35 +1412,55 @@
         function updateParticles() {
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
-                p.position.add(p.userData.vel); p.scale.multiplyScalar(0.9); p.userData.life--;
-                if(p.userData.life<=0) { scene.remove(p); particles.splice(i,1); }
+                p.position.add(p.userData.vel); 
+                p.scale.multiplyScalar(0.9); 
+                p.userData.life--;
+                if (p.userData.life <= 0) { 
+                    scene.remove(p); 
+                    particles.splice(i, 1); 
+                }
             }
         }
 
         function updateHUD() {
             document.getElementById('score').innerText = Math.floor(state.score);
+            document.getElementById('level-box').innerText = `LEVEL ${state.level}`;
             document.getElementById('health-fill').style.width = state.health + '%';
+            
+            // Health bar color
+            const hf = document.getElementById('health-fill');
+            if (state.health > 60) hf.style.backgroundColor = '#00ff00';
+            else if (state.health > 30) hf.style.backgroundColor = '#ffaa00';
+            else hf.style.backgroundColor = '#ff0000';
         }
+
         function updateBossUI() {
-            if(boss) document.getElementById('boss-health-fill').style.width = (boss.userData.hp/boss.userData.maxHp)*100 + '%';
+            if (boss) {
+                document.getElementById('boss-health-fill').style.width = (boss.userData.hp / boss.userData.maxHp) * 100 + '%';
+            }
         }
+
         function showLevelMessage(lvl) {
             const msg = document.getElementById('level-msg');
-            msg.innerHTML = `LEVEL ${lvl}<br>ENGAGE!`;
-            msg.style.opacity = 1; setTimeout(() => msg.style.opacity = 0, 3000);
+            const config = LEVEL_CONFIG[lvl];
+            msg.innerHTML = `LEVEL ${lvl}<br><span id="level-subtitle">${config.name}</span><br>ENGAGE!`;
+            msg.style.opacity = 1; 
+            setTimeout(() => msg.style.opacity = 0, 3000);
         }
 
         function setupControls() {
             window.addEventListener('keydown', e => {
-                if(e.key==='ArrowLeft') input.x=-1; if(e.key==='ArrowRight') input.x=1;
-                if(e.key==='ArrowUp') input.y=-1; if(e.key==='ArrowDown') input.y=1;
-                if(e.code==='Space') input.firing=true;
-                if(e.code==='KeyP') togglePause();
+                if (e.key === 'ArrowLeft') input.x = -1; 
+                if (e.key === 'ArrowRight') input.x = 1;
+                if (e.key === 'ArrowUp') input.y = -1; 
+                if (e.key === 'ArrowDown') input.y = 1;
+                if (e.code === 'Space') input.firing = true;
+                if (e.code === 'KeyP') togglePause();
             });
             window.addEventListener('keyup', e => {
-                if(['ArrowLeft','ArrowRight'].includes(e.key)) input.x=0;
-                if(['ArrowUp','ArrowDown'].includes(e.key)) input.y=0;
-                if(e.code==='Space') input.firing=false;
+                if (['ArrowLeft', 'ArrowRight'].includes(e.key)) input.x = 0;
+                if (['ArrowUp', 'ArrowDown'].includes(e.key)) input.y = 0;
+                if (e.code === 'Space') input.firing = false;
             });
 
             document.getElementById('pause-btn').addEventListener('click', togglePause);
@@ -691,42 +1472,42 @@
                 const wrapper = document.getElementById('joystick-wrapper');
                 const knob = document.getElementById('joystick-knob');
                 const fire = document.getElementById('fire-zone');
-                
+
                 wrapper.style.display = 'block';
-                const maxDist = 40; 
+                const maxDist = 40;
                 const handleJoy = (tx, ty, cx, cy) => {
-                    let dx = tx-cx, dy = ty-cy, dist = Math.sqrt(dx*dx + dy*dy);
-                    input.x = Math.max(-1, Math.min(1, dx/maxDist));
-                    input.y = Math.max(-1, Math.min(1, dy/maxDist));
-                    if(dist>maxDist) { dx*=maxDist/dist; dy*=maxDist/dist; }
+                    let dx = tx - cx, dy = ty - cy, dist = Math.sqrt(dx * dx + dy * dy);
+                    input.x = Math.max(-1, Math.min(1, dx / maxDist));
+                    input.y = Math.max(-1, Math.min(1, dy / maxDist));
+                    if (dist > maxDist) { dx *= maxDist / dist; dy *= maxDist / dist; }
                     knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
                 };
 
                 wrapper.addEventListener('touchmove', e => {
                     e.preventDefault();
                     const t = e.touches[0], r = wrapper.getBoundingClientRect();
-                    handleJoy(t.clientX, t.clientY, r.left+r.width/2, r.top+r.height/2);
-                }, {passive:false});
-                
+                    handleJoy(t.clientX, t.clientY, r.left + r.width / 2, r.top + r.height / 2);
+                }, { passive: false });
+
                 wrapper.addEventListener('touchstart', e => {
                     e.preventDefault();
                     const t = e.touches[0], r = wrapper.getBoundingClientRect();
-                    handleJoy(t.clientX, t.clientY, r.left+r.width/2, r.top+r.height/2);
-                }, {passive:false});
+                    handleJoy(t.clientX, t.clientY, r.left + r.width / 2, r.top + r.height / 2);
+                }, { passive: false });
 
                 wrapper.addEventListener('touchend', e => {
-                    e.preventDefault(); input.x=0; input.y=0; knob.style.transform=`translate(-50%, -50%)`;
+                    e.preventDefault(); input.x = 0; input.y = 0; knob.style.transform = `translate(-50%, -50%)`;
                 });
-                fire.addEventListener('touchstart', e => { e.preventDefault(); input.firing=true; }, {passive:false});
-                fire.addEventListener('touchend', () => input.firing=false);
+                fire.addEventListener('touchstart', e => { e.preventDefault(); input.firing = true; }, { passive: false });
+                fire.addEventListener('touchend', () => input.firing = false);
             }
         }
 
         function togglePause() {
-            if(state.gameOver) return;
+            if (state.gameOver) return;
             state.paused = !state.paused;
             document.getElementById('pause-overlay').style.display = state.paused ? 'flex' : 'none';
-            if(!state.paused) animate();
+            if (!state.paused) animate();
         }
 
         function onWindowResize() {
